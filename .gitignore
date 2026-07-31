@@ -30,3 +30,4 @@ lab6_clip_multimodal_fashion_search/fashion_images/
 *.bin
 
 .env
+.streamlit/secrets.toml

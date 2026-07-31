@@ -1,0 +1,270 @@
+"""실습2 — Seq2Seq(BiGRU + Luong Attention) 번역 모델 (노트북 코드를 그대로 이식).
+
+torchtext가 더 이상 유지되지 않아, 노트북과 동일하게 Vocab/tokenizer를 순수 파이썬으로 재구현합니다.
+"""
+import random
+import re
+from collections import Counter
+from pathlib import Path
+
+import streamlit as st
+import torch
+from torch import nn
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DATA_DIR = REPO_ROOT / "lab2_seq2seq_translation_modeling" / "data"
+
+PAD_TOKEN, BOS_TOKEN, EOS_TOKEN = "<pad>", "<bos>", "<eos>"
+
+_EN_PATTERNS = [
+    (re.compile(r"\'"), " '  "),
+    (re.compile(r"\""), ""),
+    (re.compile(r"\."), " . "),
+    (re.compile(r"<br \/>"), " "),
+    (re.compile(r","), " , "),
+    (re.compile(r"\("), " ( "),
+    (re.compile(r"\)"), " ) "),
+    (re.compile(r"\!"), " ! "),
+    (re.compile(r"\?"), " ? "),
+    (re.compile(r"\;"), " "),
+    (re.compile(r"\:"), " "),
+    (re.compile(r"\s+"), " "),
+]
+
+
+def tok_en(line: str) -> list:
+    line = line.lower()
+    for pattern, repl in _EN_PATTERNS:
+        line = pattern.sub(repl, line)
+    return line.split()
+
+
+def tok_ko(text: str) -> list:
+    return text.strip().split()
+
+
+class Vocab:
+    def __init__(self, itos: list):
+        self._itos = itos
+        self._stoi = {tok: i for i, tok in enumerate(itos)}
+
+    def __len__(self) -> int:
+        return len(self._itos)
+
+    def __getitem__(self, token: str) -> int:
+        return self._stoi[token]
+
+    def __contains__(self, token: str) -> bool:
+        return token in self._stoi
+
+    def lookup_token(self, index: int) -> str:
+        return self._itos[index]
+
+
+def build_vocab(token_lists: list[list[str]], specials: list) -> Vocab:
+    counter = Counter()
+    for tokens in token_lists:
+        counter.update(tokens)
+    for token in specials:
+        counter.pop(token, None)
+    ranked = sorted(counter.items(), key=lambda x: (-x[1], x[0]))
+    itos = list(specials) + [token for token, _ in ranked]
+    return Vocab(itos)
+
+
+class Encoder(nn.Module):
+    def __init__(self, vocab_size: int, pad_idx: int, emb_dim=64, hid_dim=128):
+        super().__init__()
+        self.embed = nn.Embedding(vocab_size, emb_dim, padding_idx=pad_idx)
+        self.gru = nn.GRU(emb_dim, hid_dim, bidirectional=True, batch_first=True)
+        self.fc = nn.Linear(hid_dim * 2, hid_dim)
+
+    def forward(self, src):
+        emb = self.embed(src)
+        out, h = self.gru(emb)
+        hidden = torch.cat([h[-2], h[-1]], dim=1)
+        hidden = torch.tanh(self.fc(hidden))
+        hidden = hidden.unsqueeze(0)
+        return out, hidden
+
+
+class LuongAttention(nn.Module):
+    def __init__(self, hid_dim):
+        super().__init__()
+        self.W = nn.Linear(hid_dim * 3, hid_dim)
+        self.v = nn.Linear(hid_dim, 1, bias=False)
+
+    def forward(self, hidden, enc_out, mask):
+        hidden = hidden.squeeze(0)
+        seq_len = enc_out.size(1)
+        hidden_rep = hidden.unsqueeze(1).repeat(1, seq_len, 1)
+        combined = torch.cat([hidden_rep, enc_out], dim=2)
+        energy = torch.tanh(self.W(combined))
+        scores = self.v(energy).squeeze(2)
+        scores = scores.masked_fill(~mask, -1e10)
+        attn_weights = torch.softmax(scores, dim=1)
+        context = torch.bmm(attn_weights.unsqueeze(1), enc_out).squeeze(1)
+        return context, attn_weights
+
+
+class Decoder(nn.Module):
+    def __init__(self, vocab_size: int, pad_idx: int, emb_dim=64, hid_dim=128):
+        super().__init__()
+        self.embed = nn.Embedding(vocab_size, emb_dim, padding_idx=pad_idx)
+        self.gru = nn.GRU(emb_dim + hid_dim * 2, hid_dim, batch_first=True)
+        self.out = nn.Linear(hid_dim * 3, vocab_size)
+        self.attention = LuongAttention(hid_dim)
+
+    def forward(self, input_tok, hidden, enc_out, mask):
+        emb = self.embed(input_tok).unsqueeze(1)
+        context, attn = self.attention(hidden, enc_out, mask)
+        context = context.unsqueeze(1)
+        gru_input = torch.cat([emb, context], dim=2)
+        gru_out, new_hidden = self.gru(gru_input, hidden)
+        combined = torch.cat([gru_out.squeeze(1), context.squeeze(1)], dim=1)
+        output = self.out(combined)
+        return output, new_hidden, attn
+
+
+class TranslationBundle:
+    def __init__(self, encoder, decoder, vocab_ko, vocab_en, pad, bos, eos, device, losses):
+        self.encoder = encoder
+        self.decoder = decoder
+        self.vocab_ko = vocab_ko
+        self.vocab_en = vocab_en
+        self.pad = pad
+        self.bos = bos
+        self.eos = eos
+        self.device = device
+        self.losses = losses
+
+    def translate(self, sentence: str, max_len: int = 20) -> str:
+        self.encoder.eval()
+        self.decoder.eval()
+        with torch.no_grad():
+            tokens = tok_ko(sentence)
+            unk_safe = [t for t in tokens if t in self.vocab_ko]
+            src = [self.bos] + [self.vocab_ko[t] for t in unk_safe] + [self.eos]
+            src = torch.tensor(src, dtype=torch.long).unsqueeze(0).to(self.device)
+
+            enc_out, hidden = self.encoder(src)
+            mask = src != self.pad
+
+            input_tok = torch.tensor([self.bos]).to(self.device)
+            result = []
+            for _ in range(max_len):
+                output, hidden, _ = self.decoder(input_tok, hidden, enc_out, mask)
+                top_token = output.argmax(dim=1).item()
+                if top_token == self.eos:
+                    break
+                result.append(self.vocab_en.lookup_token(top_token))
+                input_tok = torch.tensor([top_token]).to(self.device)
+            return " ".join(result)
+
+    def beam_search_translate(self, sentence: str, beam_width: int = 3, max_len: int = 20) -> str:
+        self.encoder.eval()
+        self.decoder.eval()
+        with torch.no_grad():
+            tokens = tok_ko(sentence)
+            unk_safe = [t for t in tokens if t in self.vocab_ko]
+            src = [self.bos] + [self.vocab_ko[t] for t in unk_safe] + [self.eos]
+            src = torch.tensor(src, dtype=torch.long).unsqueeze(0).to(self.device)
+
+            enc_out, hidden = self.encoder(src)
+            mask = src != self.pad
+
+            beams = [(0.0, [self.bos], hidden, enc_out, mask)]
+            completed = []
+
+            for _ in range(max_len):
+                next_beams = []
+                for score, toks, h, enc, m in beams:
+                    if toks[-1] == self.eos:
+                        completed.append((score, toks))
+                        continue
+                    input_tok = torch.tensor([toks[-1]]).to(self.device)
+                    output, h_new, _ = self.decoder(input_tok, h, enc, m)
+                    log_probs = torch.log_softmax(output, dim=1)[0]
+                    if len(toks) > 1 and toks[-1] == toks[-2]:
+                        log_probs[toks[-1]] -= 0.5
+                    topk_probs, topk_indices = log_probs.topk(beam_width)
+                    for prob, idx in zip(topk_probs, topk_indices):
+                        next_beams.append((score + prob.item(), toks + [idx.item()], h_new, enc, m))
+
+                next_beams.sort(key=lambda x: x[0] / len(x[1]), reverse=True)
+                beams = next_beams[:beam_width]
+                if all(b[1][-1] == self.eos for b in beams):
+                    break
+
+            for score, toks, _, _, _ in beams:
+                if toks[-1] != self.eos:
+                    completed.append((score, toks))
+
+            best_tokens = max(completed, key=lambda x: x[0])[1] if completed else beams[0][1]
+            result = []
+            for tok in best_tokens[1:]:
+                if tok == self.eos:
+                    break
+                result.append(self.vocab_en.lookup_token(tok))
+            return " ".join(result)
+
+
+@st.cache_resource(show_spinner="번역 모델 학습 중... (720개 문장, 3 epoch, 약 10~30초)")
+def train_bundle() -> TranslationBundle:
+    device = torch.device("cpu")
+    torch.manual_seed(42)
+    random.seed(42)
+
+    with open(DATA_DIR / "train_kor.txt", encoding="utf-8") as f_ko, \
+         open(DATA_DIR / "train_eng.txt", encoding="utf-8") as f_en:
+        kor_lines = f_ko.read().strip().splitlines()
+        eng_lines = f_en.read().strip().splitlines()
+    pairs = list(zip(kor_lines, eng_lines))
+
+    specials = [PAD_TOKEN, BOS_TOKEN, EOS_TOKEN]
+    ko_tokens = [specials] + [tok_ko(ko) for ko, _ in pairs]
+    en_tokens = [specials] + [tok_en(en) for _, en in pairs]
+    vocab_ko = build_vocab(ko_tokens, specials)
+    vocab_en = build_vocab(en_tokens, specials)
+
+    pad, bos, eos = vocab_ko[PAD_TOKEN], vocab_ko[BOS_TOKEN], vocab_ko[EOS_TOKEN]
+
+    def tensorize(pair):
+        ko, en = pair
+        src = [bos] + [vocab_ko[t] for t in tok_ko(ko)] + [eos]
+        tgt = [bos] + [vocab_en[t] for t in tok_en(en)] + [eos]
+        return torch.tensor(src, dtype=torch.long), torch.tensor(tgt, dtype=torch.long)
+
+    data = [tensorize(p) for p in pairs]
+
+    encoder = Encoder(len(vocab_ko), pad).to(device)
+    decoder = Decoder(len(vocab_en), pad).to(device)
+    optim = torch.optim.Adam(list(encoder.parameters()) + list(decoder.parameters()), lr=0.001)
+    criterion = nn.CrossEntropyLoss(ignore_index=pad)
+
+    losses = []
+    for _epoch in range(3):
+        encoder.train()
+        decoder.train()
+        total_loss = 0
+        for src, tgt in data:
+            src = src.unsqueeze(0).to(device)
+            tgt = tgt.unsqueeze(0).to(device)
+            enc_out, hidden = encoder(src)
+            mask = src != pad
+            input_tok = tgt[:, 0]
+
+            loss = 0
+            for t in range(1, tgt.size(1)):
+                output, hidden, _ = decoder(input_tok, hidden, enc_out, mask)
+                loss += criterion(output, tgt[:, t])
+                input_tok = tgt[:, t] if random.random() < 0.5 else output.argmax(dim=1)
+
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+            total_loss += loss.item() / (tgt.size(1) - 1)
+
+        losses.append(total_loss / len(data))
+
+    return TranslationBundle(encoder, decoder, vocab_ko, vocab_en, pad, bos, eos, device, losses)

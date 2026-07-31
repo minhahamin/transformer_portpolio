@@ -40,7 +40,39 @@ BLIP(Salesforce/blip-image-captioning-base) 모델로 MSCOCO 이미지 50장에 
 
 - **실습2**: 원래 `torchtext`를 사용하도록 작성되었으나, torchtext는 2023년 Meta가 공식적으로 개발을 중단해 최신 PyTorch와 호환되는 배포판이 없습니다. `get_tokenizer` / `build_vocab_from_iterator`를 순수 Python으로 재구현해 대체했습니다(외부 패키지 설치 불필요).
 - **실습9**: `korean_image_captioning_dataset/`(MSCOCO 한국어 캡션, 117MB)과 `coco_images/`는 용량이 커서 `.gitignore`로 제외했습니다 — 노트북의 데이터 로드/다운로드 셀을 그대로 실행하면 다시 준비됩니다.
-- **실습9**: 한국어 번역에 쓰는 `Helsinki-NLP/opus-mt-tc-big-en-ko` 체크포인트가 토크나이저 vocab 이슈로 번역 품질이 낮게 나오는 현상이 확인되어, 대체 모델 검증을 진행 중입니다.
+- **실습9**: 한국어 번역에 쓰는 `Helsinki-NLP/opus-mt-tc-big-en-ko` 체크포인트가 토크나이저 vocab 이슈로 번역 품질이 낮게 나오는 현상이 확인되어, 노트북은 `facebook/nllb-200-distilled-600M`으로 교체했습니다. (아래 Streamlit 배포판은 무료 호스팅 메모리 제약 때문에 품질을 다소 희생하고 다시 `opus-mt-tc-big-en-ko`를 사용합니다.)
+
+## Streamlit 배포판
+
+`streamlit_app/`에 4개 실습을 하나로 묶은 멀티페이지 Streamlit 앱이 있습니다. 원본 `.ipynb`는 그대로 두고, 무료 호스팅(Streamlit Community Cloud, RAM 제약)에 맞춰 일부 모델만 배포판 코드에서 가볍게 교체했습니다.
+
+| 실습 | 배포판에서 달라진 점 |
+|---|---|
+| 실습1 | 없음 (Okt 그대로, `packages.txt`로 JVM 설치) |
+| 실습2 | 없음 (앱 시작 시 720문장으로 3 epoch 즉석 학습, 수 초~수십 초 소요) |
+| 실습6 | `git+openai/CLIP` → `transformers.CLIPModel`(`openai/clip-vit-base-patch16`, 동일 가중치, 배포 신뢰성 목적) |
+| 실습9 | 번역 모델 `nllb-200-distilled-600M`(2.4GB) → `Helsinki-NLP/opus-mt-tc-big-en-ko`(약 800MB). 위 이슈 노트에 있는 품질 저하를 무료 티어 메모리와 맞바꾼 선택 |
+
+### 로컬 실행
+
+```bash
+pip install -r requirements.txt
+# 실습1의 Okt는 Java(JRE/JDK)가 로컬에 설치되어 있어야 합니다.
+streamlit run streamlit_app/Home.py
+```
+
+실습6에서 Unsplash로 새 이미지를 받아오려면(이미 `fashion_images/`에 캐시가 있으면 불필요) `.streamlit/secrets.toml.example`을 `.streamlit/secrets.toml`로 복사하고 `UNSPLASH_API_KEY`를 채워 넣으세요.
+
+### Streamlit Community Cloud 배포
+
+1. 이 저장소를 GitHub에 push합니다.
+2. [share.streamlit.io](https://share.streamlit.io)에서 New app → 이 저장소 선택 → Main file path에 `streamlit_app/Home.py` 지정.
+3. 저장소 루트의 `requirements.txt`(파이썬 패키지)와 `packages.txt`(`default-jdk`, `fonts-nanum` — apt 패키지)가 자동으로 인식됩니다.
+4. App 설정의 Secrets에 아래 내용을 추가합니다(선택, 실습6용):
+   ```toml
+   UNSPLASH_API_KEY = "your-unsplash-access-key"
+   ```
+5. 무거운 모델(CLIP ~350MB, BLIP ~990MB, 번역 모델 ~800MB)은 각 페이지를 처음 열 때만 다운로드됩니다. 무료 티어는 RAM이 넉넉하지 않으므로, 여러 페이지(특히 실습9)를 동시에/연속으로 열면 메모리 초과로 앱이 재시작될 수 있습니다 — 재현되면 Hugging Face Spaces 등 RAM이 더 큰 플랫폼을 권장합니다.
 
 ## 프로젝트 구조
 
