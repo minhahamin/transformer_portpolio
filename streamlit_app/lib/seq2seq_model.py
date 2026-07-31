@@ -1,6 +1,11 @@
 """실습2 — Seq2Seq(BiGRU + Luong Attention) 번역 모델 (노트북 코드를 그대로 이식).
 
 torchtext가 더 이상 유지되지 않아, 노트북과 동일하게 Vocab/tokenizer를 순수 파이썬으로 재구현합니다.
+
+노트북 원본은 한국어를 공백 기준으로만 나누는데(`text.split()`), 학습 데이터가 720문장뿐이라
+어휘가 아주 작고 "안녕하세요"처럼 학습 문장과 조사/띄어쓰기가 조금만 달라도 완전히 다른(미등록)
+단어로 취급되어 번역이 크게 어긋납니다. 배포판에서는 lab1과 동일한 Okt 형태소 분석기로 한국어를
+더 작은 단위(형태소)로 나눠, 학습 문장과 표현이 달라도 겹치는 형태소가 남을 확률을 높입니다.
 """
 import random
 import re
@@ -10,6 +15,8 @@ from pathlib import Path
 import streamlit as st
 import torch
 from torch import nn
+
+from lib import review_analysis as ra
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO_ROOT / "lab2_seq2seq_translation_modeling" / "data"
@@ -41,7 +48,7 @@ def tok_en(line: str) -> list:
 
 
 def tok_ko(text: str) -> list:
-    return text.strip().split()
+    return ra.get_okt().morphs(text.strip())
 
 
 class Vocab:
