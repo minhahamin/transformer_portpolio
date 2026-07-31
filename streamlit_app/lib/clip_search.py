@@ -30,6 +30,14 @@ FASHION_PROFILES = {
     "부츠": "무릎까지 올라오는 부츠, 겨울 스타일, 세련된 분위기",
     "미니 크로스백": "작고 단정한 가방, 미니멀한 럭셔리 스타일",
     "빈티지 선글라스": "복고풍의 트렌디한 선글라스, 여름 필수 액세서리",
+    "니트 스웨터": "따뜻하고 포근한 니트 소재 상의, 가을·겨울 캐주얼 스타일",
+    "정장 수트": "격식 있는 자리에 어울리는 깔끔한 수트, 비즈니스 캐주얼",
+    "청바지": "편안하고 활동적인 데님 팬츠, 캐주얼의 기본 아이템",
+    "트렌치코트": "클래식한 카키색 트렌치코트, 봄가을 아우터의 정석",
+    "가디건": "가볍게 걸치는 니트 가디건, 레이어드 스타일에 좋음",
+    "후드티": "편안한 캐주얼 후드 스웨트셔츠, 스트리트 패션",
+    "크롭탑": "짧은 기장의 캐주얼 상의, 여름 스타일",
+    "롱 원피스": "발목까지 오는 캐주얼한 롱 원피스, 데일리룩",
 }
 
 IMAGE_QUERIES = {
@@ -45,6 +53,14 @@ IMAGE_QUERIES = {
     "부츠": "boots fashion woman",
     "미니 크로스백": "mini crossbody bag fashion",
     "빈티지 선글라스": "vintage sunglasses fashion",
+    "니트 스웨터": "knit sweater fashion woman",
+    "정장 수트": "business suit fashion woman",
+    "청바지": "denim jeans fashion woman",
+    "트렌치코트": "trench coat fashion woman",
+    "가디건": "cardigan fashion woman",
+    "후드티": "hoodie sweatshirt fashion",
+    "크롭탑": "crop top fashion woman",
+    "롱 원피스": "long dress casual daily woman",
 }
 
 
@@ -97,7 +113,7 @@ def download_fashion_image(query: str, cache_name: str) -> str | None:
     return None
 
 
-@st.cache_resource(show_spinner="12가지 패션 아이템 이미지 준비 및 벡터화 중...")
+@st.cache_resource(show_spinner="패션 아이템 이미지 준비 및 벡터화 중...")
 def build_fashion_index():
     model, processor = load_clip()
 
@@ -121,10 +137,14 @@ def build_fashion_index():
             except Exception:
                 continue
 
+    # OpenAI CLIP의 토크나이저는 한국어를 학습하지 않아, 한국어 설명을 그대로 넣으면
+    # 의미 없는 바이트 조각으로 쪼개져 임베딩이 사실상 노이즈가 됩니다(예: "격식 있는..."
+    # 47토큰 vs 영어 동의 표현 14토큰 — 실측 확인). 그래서 텍스트 임베딩은 항상 영어
+    # 문장(IMAGE_QUERIES)으로 만들고, 화면에는 한국어 라벨(FASHION_PROFILES 키)만 보여줍니다.
     text_vectors = {}
     with torch.no_grad():
-        for item_name, desc in FASHION_PROFILES.items():
-            inputs = processor(text=[desc], return_tensors="pt", padding=True)
+        for item_name, query in IMAGE_QUERIES.items():
+            inputs = processor(text=[query], return_tensors="pt", padding=True)
             feats = _as_embedding(model.get_text_features(**inputs))
             feats = feats / feats.norm(dim=-1, keepdim=True)
             text_vectors[item_name] = feats.cpu().numpy().squeeze()
@@ -150,7 +170,15 @@ def search_fashion_style(style_description: str, text_vectors: dict, n_results: 
     return similarities[:n_results]
 
 
-def search_by_image(pil_image: Image.Image, image_vectors: dict, valid_images: dict, n_results: int = 5):
+def search_by_image(pil_image: Image.Image, text_vectors: dict, valid_images: dict, n_results: int = 5):
+    """업로드한 사진을 각 아이템의 (영어) 텍스트 설명과 비교합니다.
+
+    처음엔 사진끼리(image_vectors) 비교했는데, 예를 들어 정장을 입은 인물 클로즈업
+    사진을 넣으면 "후드티"가 1등으로 나오는 등 옷 종류보다 사진 구도(인물 클로즈업 vs
+    전신 스트리트컷)가 더 강하게 반영되는 문제가 실측으로 확인됐습니다. 아이템의
+    텍스트 설명과 비교하면(제로샷 CLIP 분류 방식) 이런 구도 편향 없이 옷 종류 자체로
+    비교되어 훨씬 정확합니다.
+    """
     model, processor = load_clip()
     with torch.no_grad():
         inputs = processor(images=pil_image.convert("RGB"), return_tensors="pt")
@@ -159,37 +187,9 @@ def search_by_image(pil_image: Image.Image, image_vectors: dict, valid_images: d
         query_vector = feats.cpu().numpy().squeeze()
 
     similarities = [
-        (item, float(query_vector @ vec), valid_images[item]) for item, vec in image_vectors.items()
+        (item, float(query_vector @ vec), valid_images[item])
+        for item, vec in text_vectors.items()
+        if item in valid_images
     ]
-    similarities.sort(key=lambda x: x[1], reverse=True)
-    return similarities[:n_results]
-
-
-def embed_uploaded_images(images: list) -> list:
-    """사용자가 업로드한 임의의 이미지 목록을 CLIP 임베딩으로 변환합니다 ("내 옷장" 기능용)."""
-    model, processor = load_clip()
-    vectors = []
-    with torch.no_grad():
-        for image in images:
-            inputs = processor(images=image.convert("RGB"), return_tensors="pt")
-            feats = _as_embedding(model.get_image_features(**inputs))
-            feats = feats / feats.norm(dim=-1, keepdim=True)
-            vectors.append(feats.cpu().numpy().squeeze())
-    return vectors
-
-
-def search_in_wardrobe(style_description: str, vectors: list, n_results: int = 5):
-    """텍스트 설명으로 embed_uploaded_images() 결과(내 옷장) 중에서 검색합니다.
-
-    Returns: [(인덱스, 유사도), ...] 유사도 내림차순
-    """
-    model, processor = load_clip()
-    with torch.no_grad():
-        inputs = processor(text=[style_description], return_tensors="pt", padding=True)
-        feats = _as_embedding(model.get_text_features(**inputs))
-        feats = feats / feats.norm(dim=-1, keepdim=True)
-        query_vector = feats.cpu().numpy().squeeze()
-
-    similarities = [(i, float(query_vector @ vec)) for i, vec in enumerate(vectors)]
     similarities.sort(key=lambda x: x[1], reverse=True)
     return similarities[:n_results]

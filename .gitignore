@@ -28,6 +28,7 @@ lab6_clip_multimodal_fashion_search/fashion_images/
 *.ckpt
 *.safetensors
 *.bin
+streamlit_app/lib/nllb_ct2_int8/
 
 .env
 .streamlit/secrets.toml
