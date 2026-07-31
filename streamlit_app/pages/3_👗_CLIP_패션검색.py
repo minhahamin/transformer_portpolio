@@ -45,7 +45,7 @@ with tab_text:
             with cols[i % len(cols)]:
                 img_path = index["valid_images"].get(item)
                 if img_path:
-                    st.image(img_path, use_container_width=True)
+                    st.image(img_path, width="stretch")
                 st.markdown(f"**{item}**")
                 st.progress(min(max(sim, 0.0), 1.0), text=f"유사도 {sim:.1%}")
 
@@ -56,7 +56,7 @@ with tab_image:
         query_image = Image.open(uploaded)
         col_in, col_out = st.columns([1, 3])
         with col_in:
-            st.image(query_image, caption="업로드한 이미지", use_container_width=True)
+            st.image(query_image, caption="업로드한 이미지", width="stretch")
         with col_out:
             results = cs.search_by_image(
                 query_image, index["image_vectors"], index["valid_images"], n_results=n_results_img
@@ -64,7 +64,7 @@ with tab_image:
             cols = st.columns(min(len(results), 5) or 1)
             for i, (item, sim, img_path) in enumerate(results):
                 with cols[i % len(cols)]:
-                    st.image(img_path, use_container_width=True)
+                    st.image(img_path, width="stretch")
                     st.markdown(f"**{item}**")
                     st.progress(min(max(sim, 0.0), 1.0), text=f"유사도 {sim:.1%}")
 

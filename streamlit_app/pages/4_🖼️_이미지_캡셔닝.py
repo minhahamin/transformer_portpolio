@@ -30,7 +30,7 @@ if uploaded is not None:
     col_img, col_result = st.columns([1, 1])
 
     with col_img:
-        st.image(image, use_container_width=True)
+        st.image(image, width="stretch")
 
     with col_result:
         with st.spinner("캡션 생성 중..."):

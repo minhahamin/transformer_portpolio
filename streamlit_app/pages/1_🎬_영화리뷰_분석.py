@@ -50,7 +50,7 @@ with col1:
         import matplotlib.font_manager as fm
         prop = fm.FontProperties(fname=font_path)
         ax.set_yticklabels(words[::-1], fontproperties=prop)
-    st.pyplot(fig, use_container_width=True)
+    st.pyplot(fig, width="stretch")
 
 with col2:
     st.subheader("☁️ 워드클라우드")
@@ -65,7 +65,7 @@ with col2:
     fig2, ax2 = plt.subplots(figsize=(6, 5))
     ax2.imshow(wc, interpolation="bilinear")
     ax2.axis("off")
-    st.pyplot(fig2, use_container_width=True)
+    st.pyplot(fig2, width="stretch")
 
 st.subheader("📋 통계 요약")
 c1, c2, c3 = st.columns(3)
@@ -76,6 +76,6 @@ c3.metric("최고 빈도 단어", f"{words[0]} ({freqs[0]:,}회)")
 with st.expander("상위 단어 전체 목록 보기"):
     st.dataframe(
         {"단어": list(words), "빈도": list(freqs)},
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
