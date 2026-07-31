@@ -7,8 +7,11 @@ from PIL import Image
 import streamlit as st
 
 from lib import captioning as cap
+from lib import memory_manager
 
 st.set_page_config(page_title="이미지 캡셔닝", page_icon="🖼️", layout="wide")
+memory_manager.activate("caption")
+
 st.title("🖼️ 실습9 — BLIP Image Captioning")
 st.caption("이미지를 업로드하면 BLIP이 영어 캡션을 생성하고, 원하면 한국어로 번역합니다.")
 

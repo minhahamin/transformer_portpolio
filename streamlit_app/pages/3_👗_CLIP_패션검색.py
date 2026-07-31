@@ -7,8 +7,11 @@ from PIL import Image
 import streamlit as st
 
 from lib import clip_search as cs
+from lib import memory_manager
 
 st.set_page_config(page_title="CLIP 패션 검색", page_icon="👗", layout="wide")
+memory_manager.activate("clip")
+
 st.title("👗 실습6 — CLIP 멀티모달 패션 스타일 검색")
 st.caption("텍스트 설명 또는 이미지로 12가지 패션 아이템 중 가장 잘 어울리는 스타일을 찾습니다.")
 

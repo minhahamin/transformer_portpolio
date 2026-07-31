@@ -13,6 +13,7 @@ from torch import nn
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO_ROOT / "lab2_seq2seq_translation_modeling" / "data"
+CHECKPOINT_PATH = Path(__file__).resolve().parent / "seq2seq_checkpoint.pt"
 
 PAD_TOKEN, BOS_TOKEN, EOS_TOKEN = "<pad>", "<bos>", "<eos>"
 
@@ -59,6 +60,9 @@ class Vocab:
 
     def lookup_token(self, index: int) -> str:
         return self._itos[index]
+
+    def get_itos(self) -> list:
+        return list(self._itos)
 
 
 def build_vocab(token_lists: list[list[str]], specials: list) -> Vocab:
@@ -209,8 +213,8 @@ class TranslationBundle:
             return " ".join(result)
 
 
-@st.cache_resource(show_spinner="번역 모델 학습 중... (720개 문장, 3 epoch, 약 10~30초)")
-def train_bundle() -> TranslationBundle:
+def _train_bundle_from_scratch() -> TranslationBundle:
+    """체크포인트가 없을 때만 쓰는 폴백: 즉석에서 3 epoch만 학습합니다(로컬 개발용)."""
     device = torch.device("cpu")
     torch.manual_seed(42)
     random.seed(42)
@@ -268,3 +272,28 @@ def train_bundle() -> TranslationBundle:
         losses.append(total_loss / len(data))
 
     return TranslationBundle(encoder, decoder, vocab_ko, vocab_en, pad, bos, eos, device, losses)
+
+
+def _load_bundle_from_checkpoint() -> TranslationBundle:
+    device = torch.device("cpu")
+    checkpoint = torch.load(CHECKPOINT_PATH, map_location=device, weights_only=False)
+
+    vocab_ko = Vocab(checkpoint["vocab_ko_itos"])
+    vocab_en = Vocab(checkpoint["vocab_en_itos"])
+    pad, bos, eos = vocab_ko[PAD_TOKEN], vocab_ko[BOS_TOKEN], vocab_ko[EOS_TOKEN]
+
+    encoder = Encoder(len(vocab_ko), pad).to(device)
+    decoder = Decoder(len(vocab_en), pad).to(device)
+    encoder.load_state_dict(checkpoint["encoder_state"])
+    decoder.load_state_dict(checkpoint["decoder_state"])
+
+    return TranslationBundle(encoder, decoder, vocab_ko, vocab_en, pad, bos, eos, device, checkpoint["losses"])
+
+
+@st.cache_resource(show_spinner="번역 모델 준비 중...")
+def train_bundle() -> TranslationBundle:
+    """사전 학습된 체크포인트(streamlit_app/lib/seq2seq_checkpoint.pt)가 있으면 로드만 하고(수 초),
+    없으면 즉석에서 3 epoch만 학습합니다(로컬에서 pretrain_seq2seq.py를 아직 안 돌린 경우의 폴백)."""
+    if CHECKPOINT_PATH.exists():
+        return _load_bundle_from_checkpoint()
+    return _train_bundle_from_scratch()

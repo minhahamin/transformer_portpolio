@@ -39,6 +39,7 @@ BLIP(Salesforce/blip-image-captioning-base) 모델로 MSCOCO 이미지 50장에 
 ## 실행 참고사항 (환경 이슈 노트)
 
 - **실습2**: 원래 `torchtext`를 사용하도록 작성되었으나, torchtext는 2023년 Meta가 공식적으로 개발을 중단해 최신 PyTorch와 호환되는 배포판이 없습니다. `get_tokenizer` / `build_vocab_from_iterator`를 순수 Python으로 재구현해 대체했습니다(외부 패키지 설치 불필요).
+- **실습2**: `data/input.txt`가 채점 시스템이 채워 넣기 전의 placeholder 텍스트("Test\nData\n...")를 담고 있어, 이 파일을 그대로 번역 테스트에 사용하면 `translate()`/`beam_search_translate()`가 학습 어휘에 없는 영어 단어(`Test` 등)에서 `KeyError`를 던집니다. 두 함수 모두 학습 어휘에 없는 토큰은 건너뛰도록 방어 코드를 추가했습니다 — 다만 `input.txt` 자체가 한국어 문장이 아니므로 번역 결과 자체는 여전히 의미가 없습니다. 실제 번역을 확인하려면 `input.txt`를 실제 한국어 문장으로 바꿔서 실행하세요.
 - **실습9**: `korean_image_captioning_dataset/`(MSCOCO 한국어 캡션, 117MB)과 `coco_images/`는 용량이 커서 `.gitignore`로 제외했습니다 — 노트북의 데이터 로드/다운로드 셀을 그대로 실행하면 다시 준비됩니다.
 - **실습9**: 한국어 번역에 쓰는 `Helsinki-NLP/opus-mt-tc-big-en-ko` 체크포인트가 토크나이저 vocab 이슈로 번역 품질이 낮게 나오는 현상이 확인되어, 노트북은 `facebook/nllb-200-distilled-600M`으로 교체했습니다. (아래 Streamlit 배포판은 무료 호스팅 메모리 제약 때문에 품질을 다소 희생하고 다시 `opus-mt-tc-big-en-ko`를 사용합니다.)
 
