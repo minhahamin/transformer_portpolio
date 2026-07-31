@@ -24,8 +24,10 @@ with st.expander("Epoch별 학습 Loss"):
 
 st.subheader("🇰🇷 → 🇺🇸 번역해보기")
 st.caption(
-    "⚠️ 학습 데이터가 720문장뿐인 작은 토이 모델입니다. 학습 문장과 비슷한 표현은 잘 번역되지만, "
-    "학습 데이터에 없는 단어/구조는 번역이 부정확할 수 있습니다."
+    "⚠️ 학습 데이터가 720문장뿐인 작은 토이 모델입니다. 720문장을 거의 암기하듯 학습해서, "
+    "학습 문장과 같거나 아주 비슷한 표현은 정확히 번역되지만 완전히 새로운 조합은 그럴듯한 "
+    "오역을 지어낼 수 있습니다. 디코더 확신도가 낮으면(평균 토큰 확률 85% 미만) 오역 대신 "
+    "'학습되지 않은 표현'이라고 알려줍니다."
 )
 
 sentence = st.text_input(
@@ -40,4 +42,7 @@ if st.button("번역하기", type="primary", disabled=not sentence.strip()):
             result = bundle.translate(sentence)
         else:
             result = bundle.beam_search_translate(sentence, beam_width=beam_width)
-    st.success(result if result else "(빈 번역 결과 — 학습 데이터에 없는 단어일 수 있습니다)")
+    if result == s2s.UNTRAINED_MESSAGE:
+        st.warning(result, icon="🤷")
+    else:
+        st.success(result if result else "(빈 번역 결과)")

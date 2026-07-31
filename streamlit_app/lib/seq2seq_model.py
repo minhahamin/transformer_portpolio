@@ -7,6 +7,7 @@ torchtext가 더 이상 유지되지 않아, 노트북과 동일하게 Vocab/tok
 단어로 취급되어 번역이 크게 어긋납니다. 배포판에서는 lab1과 동일한 Okt 형태소 분석기로 한국어를
 더 작은 단위(형태소)로 나눠, 학습 문장과 표현이 달라도 겹치는 형태소가 남을 확률을 높입니다.
 """
+import math
 import random
 import re
 from collections import Counter
@@ -23,6 +24,13 @@ DATA_DIR = REPO_ROOT / "lab2_seq2seq_translation_modeling" / "data"
 CHECKPOINT_PATH = Path(__file__).resolve().parent / "seq2seq_checkpoint.pt"
 
 PAD_TOKEN, BOS_TOKEN, EOS_TOKEN = "<pad>", "<bos>", "<eos>"
+
+# 720문장으로 학습한 모델이라 학습 문장과 거의 같은 입력은 디코더가 각 단어를 0.99+ 확률로
+# 자신 있게 예측하지만, 학습 데이터에 없던 조합은 평균 확률이 0.5~0.7대로 뚝 떨어지면서
+# 그럴듯해 보이는 오역을 지어냅니다(hallucination). 실측 기준 두 그룹이 뚜렷이 갈리는 지점인
+# 0.85를 임계값으로 잡아, 미달 시 번역 대신 "학습되지 않은 표현" 메시지를 반환합니다.
+CONFIDENCE_THRESHOLD = 0.85
+UNTRAINED_MESSAGE = "학습되지 않은 표현입니다 (신뢰도가 낮아 번역을 생략했습니다)"
 
 _EN_PATTERNS = [
     (re.compile(r"\'"), " '  "),
@@ -162,14 +170,21 @@ class TranslationBundle:
             mask = src != self.pad
 
             input_tok = torch.tensor([self.bos]).to(self.device)
-            result = []
+            result, confidences = [], []
             for _ in range(max_len):
                 output, hidden, _ = self.decoder(input_tok, hidden, enc_out, mask)
-                top_token = output.argmax(dim=1).item()
+                probs = torch.softmax(output, dim=1)
+                top_prob, top_token = probs.max(dim=1)
+                top_token = top_token.item()
                 if top_token == self.eos:
                     break
+                confidences.append(top_prob.item())
                 result.append(self.vocab_en.lookup_token(top_token))
                 input_tok = torch.tensor([top_token]).to(self.device)
+
+            avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+            if avg_confidence < CONFIDENCE_THRESHOLD:
+                return UNTRAINED_MESSAGE
             return " ".join(result)
 
     def beam_search_translate(self, sentence: str, beam_width: int = 3, max_len: int = 20) -> str:
@@ -211,12 +226,21 @@ class TranslationBundle:
                 if toks[-1] != self.eos:
                     completed.append((score, toks))
 
-            best_tokens = max(completed, key=lambda x: x[0])[1] if completed else beams[0][1]
+            if completed:
+                best_score, best_tokens = max(completed, key=lambda x: x[0])
+            else:
+                best_score, best_tokens = beams[0][0], beams[0][1]
+
             result = []
             for tok in best_tokens[1:]:
                 if tok == self.eos:
                     break
                 result.append(self.vocab_en.lookup_token(tok))
+
+            num_generated = max(1, len(best_tokens) - 1)
+            avg_confidence = math.exp(best_score / num_generated)
+            if avg_confidence < CONFIDENCE_THRESHOLD:
+                return UNTRAINED_MESSAGE
             return " ".join(result)
 
 
