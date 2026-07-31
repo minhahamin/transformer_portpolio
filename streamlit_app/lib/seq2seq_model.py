@@ -187,6 +187,45 @@ class TranslationBundle:
                 return UNTRAINED_MESSAGE
             return " ".join(result)
 
+    def translate_with_attention(self, sentence: str, max_len: int = 20):
+        """translate()와 동일한 greedy decoding이지만, 각 생성 스텝의 Luong Attention
+        가중치도 함께 반환합니다 (히트맵 시각화용). Decoder.forward()가 이미 계산해서
+        버리던 attn을 그대로 활용합니다.
+
+        Returns:
+            (번역문 또는 UNTRAINED_MESSAGE, 입력 형태소 리스트, 출력 단어 리스트, attention 행렬)
+            attention 행렬 shape: [출력 길이, 입력 길이(BOS/EOS 포함)]
+        """
+        self.encoder.eval()
+        self.decoder.eval()
+        with torch.no_grad():
+            tokens = tok_ko(sentence)
+            unk_safe = [t for t in tokens if t in self.vocab_ko]
+            src_tokens = [BOS_TOKEN] + unk_safe + [EOS_TOKEN]
+            src = [self.bos] + [self.vocab_ko[t] for t in unk_safe] + [self.eos]
+            src = torch.tensor(src, dtype=torch.long).unsqueeze(0).to(self.device)
+
+            enc_out, hidden = self.encoder(src)
+            mask = src != self.pad
+
+            input_tok = torch.tensor([self.bos]).to(self.device)
+            result, confidences, attn_rows = [], [], []
+            for _ in range(max_len):
+                output, hidden, attn = self.decoder(input_tok, hidden, enc_out, mask)
+                probs = torch.softmax(output, dim=1)
+                top_prob, top_token = probs.max(dim=1)
+                top_token = top_token.item()
+                if top_token == self.eos:
+                    break
+                confidences.append(top_prob.item())
+                attn_rows.append(attn.squeeze(0).tolist())
+                result.append(self.vocab_en.lookup_token(top_token))
+                input_tok = torch.tensor([top_token]).to(self.device)
+
+            avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+            text = UNTRAINED_MESSAGE if avg_confidence < CONFIDENCE_THRESHOLD else " ".join(result)
+            return text, src_tokens, result, attn_rows
+
     def beam_search_translate(self, sentence: str, beam_width: int = 3, max_len: int = 20) -> str:
         self.encoder.eval()
         self.decoder.eval()

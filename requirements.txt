@@ -1,11 +1,12 @@
 streamlit>=1.36
 
-# 실습1 — 형태소 분석 / 시각화
+# 실습1 — 형태소 분석 / 시각화 / URL에서 리뷰 텍스트 가져오기
 konlpy
 wordcloud
 matplotlib
 pandas
 numpy
+beautifulsoup4
 
 # 실습2/6/9 — PyTorch (CPU 전용 wheel: GPU 빌드보다 훨씬 가볍고, 무료 호스팅엔 GPU가 없음)
 --extra-index-url https://download.pytorch.org/whl/cpu

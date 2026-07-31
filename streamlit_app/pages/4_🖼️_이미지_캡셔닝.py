@@ -13,7 +13,7 @@ st.set_page_config(page_title="이미지 캡셔닝", page_icon="🖼️", layout
 memory_manager.activate("caption")
 
 st.title("🖼️ 실습9 — BLIP Image Captioning")
-st.caption("이미지를 업로드하면 BLIP이 영어 캡션을 생성하고, 원하면 한국어로 번역합니다.")
+st.caption("이미지를 업로드하면 BLIP이 영어 캡션을 생성하고, 원하면 한국어로 번역합니다. 여러 장을 한 번에 올려 배치로 처리할 수 있습니다.")
 
 st.caption(
     "ℹ️ 번역 모델은 원본 노트북과 동일한 NLLB-600M(2.4GB)입니다. 더 가벼운 대안(opus-mt-tc-big-en-ko, "
@@ -22,26 +22,34 @@ st.caption(
     "무료 호스팅에서는 간헐적으로 재시작될 수 있습니다."
 )
 
-uploaded = st.file_uploader("이미지를 업로드하세요", type=["jpg", "jpeg", "png"])
+uploaded_files = st.file_uploader(
+    "이미지를 업로드하세요 (여러 장 선택 가능)",
+    type=["jpg", "jpeg", "png"],
+    accept_multiple_files=True,
+)
 translate = st.checkbox("한국어로 번역", value=False)
 
-if uploaded is not None:
-    image = Image.open(uploaded)
-    col_img, col_result = st.columns([1, 1])
+if uploaded_files:
+    images = [Image.open(f).convert("RGB") for f in uploaded_files]
 
-    with col_img:
-        st.image(image, width="stretch")
+    # BLIP으로 전체 캡션을 먼저 다 뽑은 뒤(BLIP 1회 로드 유지), 번역이 필요하면 그 다음에
+    # NLLB로 한꺼번에 번역합니다 — 이미지마다 BLIP↔NLLB를 번갈아 로드하면 훨씬 느려집니다.
+    with st.spinner(f"{len(images)}장 캡션 생성 중..."):
+        captions = [cap.generate_caption(img) for img in images]
 
-    with col_result:
-        with st.spinner("캡션 생성 중..."):
-            caption = cap.generate_caption(image)
-        st.markdown("**🇺🇸 영어 캡션**")
-        st.success(caption)
+    koreans = [None] * len(images)
+    if translate:
+        with st.spinner("한국어로 번역 중..."):
+            koreans = [cap.translate_to_korean(c) for c in captions]
 
-        if translate:
-            with st.spinner("한국어로 번역 중..."):
-                korean = cap.translate_to_korean(caption)
-            st.markdown("**🇰🇷 한국어 번역**")
-            st.success(korean)
+    for image, caption, korean in zip(images, captions, koreans):
+        col_img, col_text = st.columns([1, 2])
+        with col_img:
+            st.image(image, width="stretch")
+        with col_text:
+            st.markdown(f"**🇺🇸 영어**: {caption}")
+            if korean is not None:
+                st.markdown(f"**🇰🇷 한국어**: {korean}")
+        st.divider()
 else:
     st.info("이미지를 업로드하면 결과가 여기에 표시됩니다.")

@@ -163,3 +163,33 @@ def search_by_image(pil_image: Image.Image, image_vectors: dict, valid_images: d
     ]
     similarities.sort(key=lambda x: x[1], reverse=True)
     return similarities[:n_results]
+
+
+def embed_uploaded_images(images: list) -> list:
+    """사용자가 업로드한 임의의 이미지 목록을 CLIP 임베딩으로 변환합니다 ("내 옷장" 기능용)."""
+    model, processor = load_clip()
+    vectors = []
+    with torch.no_grad():
+        for image in images:
+            inputs = processor(images=image.convert("RGB"), return_tensors="pt")
+            feats = _as_embedding(model.get_image_features(**inputs))
+            feats = feats / feats.norm(dim=-1, keepdim=True)
+            vectors.append(feats.cpu().numpy().squeeze())
+    return vectors
+
+
+def search_in_wardrobe(style_description: str, vectors: list, n_results: int = 5):
+    """텍스트 설명으로 embed_uploaded_images() 결과(내 옷장) 중에서 검색합니다.
+
+    Returns: [(인덱스, 유사도), ...] 유사도 내림차순
+    """
+    model, processor = load_clip()
+    with torch.no_grad():
+        inputs = processor(text=[style_description], return_tensors="pt", padding=True)
+        feats = _as_embedding(model.get_text_features(**inputs))
+        feats = feats / feats.norm(dim=-1, keepdim=True)
+        query_vector = feats.cpu().numpy().squeeze()
+
+    similarities = [(i, float(query_vector @ vec)) for i, vec in enumerate(vectors)]
+    similarities.sort(key=lambda x: x[1], reverse=True)
+    return similarities[:n_results]

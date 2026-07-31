@@ -3,8 +3,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import matplotlib.pyplot as plt
 import streamlit as st
 
+from lib import review_analysis as ra
 from lib import seq2seq_model as s2s
 
 st.set_page_config(page_title="Seq2Seq 번역", page_icon="🌐", layout="wide")
@@ -35,14 +37,42 @@ sentence = st.text_input(
 )
 decoding = st.radio("디코딩 방식", ["Greedy", "Beam Search"], horizontal=True)
 beam_width = st.slider("Beam width", 2, 5, 3, disabled=(decoding == "Greedy"))
+show_attention = st.checkbox(
+    "🔍 Attention 시각화 보기 (Greedy만 지원)", value=True, disabled=(decoding != "Greedy")
+)
 
 if st.button("번역하기", type="primary", disabled=not sentence.strip()):
+    src_tokens = result_tokens = attn = None
     with st.spinner("번역 중..."):
         if decoding == "Greedy":
-            result = bundle.translate(sentence)
+            if show_attention:
+                result, src_tokens, result_tokens, attn = bundle.translate_with_attention(sentence)
+            else:
+                result = bundle.translate(sentence)
         else:
             result = bundle.beam_search_translate(sentence, beam_width=beam_width)
+
     if result == s2s.UNTRAINED_MESSAGE:
         st.warning(result, icon="🤷")
     else:
         st.success(result if result else "(빈 번역 결과)")
+
+        if attn:
+            st.subheader("🔥 Attention 히트맵")
+            st.caption("디코더가 각 영어 단어를 생성할 때 어떤 한국어 형태소에 주목했는지 보여줍니다.")
+            font_path = ra.get_korean_font_path()
+            font_prop = None
+            if font_path:
+                import matplotlib.font_manager as fm
+                font_prop = fm.FontProperties(fname=font_path)
+
+            fig, ax = plt.subplots(figsize=(max(4, len(src_tokens) * 0.7), max(3, len(result_tokens) * 0.6)))
+            im = ax.imshow(attn, cmap="viridis", aspect="auto")
+            ax.set_xticks(range(len(src_tokens)))
+            ax.set_xticklabels(src_tokens, rotation=45, ha="right", fontproperties=font_prop)
+            ax.set_yticks(range(len(result_tokens)))
+            ax.set_yticklabels(result_tokens)
+            ax.set_xlabel("입력 (한국어 형태소)", fontproperties=font_prop)
+            ax.set_ylabel("출력 (영어 단어)")
+            fig.colorbar(im, ax=ax, label="Attention weight")
+            st.pyplot(fig, width="content")

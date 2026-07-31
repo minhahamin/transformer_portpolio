@@ -1,10 +1,15 @@
 """실습1 — 한국어 영화 리뷰 분석 로직 (노트북 코드를 그대로 이식)."""
+import ipaddress
 import re
+import socket
 import warnings
 from collections import Counter
 from pathlib import Path
+from urllib.parse import urlparse
 
+import requests
 import streamlit as st
+from bs4 import BeautifulSoup
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CORPUS_PATH = REPO_ROOT / "lab1_korean_movie_review_analysis" / "data" / "input.txt"
@@ -48,6 +53,69 @@ def load_corpus(file_path: Path) -> list[str]:
     return sentences
 
 
+MAX_FETCH_BYTES = 5 * 1024 * 1024  # 5MB — 과도하게 큰 응답으로부터 서버 보호
+
+
+def _is_safe_url(url: str) -> tuple[bool, str]:
+    """SSRF 방지: http(s) 스킴만 허용하고, 사설/루프백/링크로컬 IP로 해석되는 호스트는 차단합니다.
+
+    공개 배포 앱이 사용자가 입력한 임의의 URL을 서버에서 대신 요청(fetch)하므로,
+    내부망·클라우드 메타데이터 엔드포인트(예: 169.254.169.254)로 향하는 요청을 막아야 합니다.
+    """
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False, "URL 형식이 올바르지 않습니다."
+
+    if parsed.scheme not in ("http", "https"):
+        return False, "http:// 또는 https:// 로 시작하는 URL만 지원합니다."
+    if not parsed.hostname:
+        return False, "URL에 호스트가 없습니다."
+
+    try:
+        resolved_ips = socket.getaddrinfo(parsed.hostname, None)
+    except socket.gaierror:
+        return False, f"호스트를 찾을 수 없습니다: {parsed.hostname}"
+
+    for family, _, _, _, sockaddr in resolved_ips:
+        ip = ipaddress.ip_address(sockaddr[0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            return False, "내부/사설 네트워크 주소로는 요청할 수 없습니다."
+
+    return True, ""
+
+
+def fetch_and_extract_ko_text(url: str) -> list[str]:
+    """URL을 가져와 본문 텍스트에서 한국어 문장만 추출합니다 (load_corpus와 동일한 후처리).
+
+    특정 사이트(예: 네이버 영화) 마크업에 맞춘 전용 스크래퍼가 아니라, 페이지의 텍스트를
+    범용으로 뽑아내는 방식이라 사이트 구조에 따라 품질 차이가 클 수 있습니다.
+    """
+    safe, reason = _is_safe_url(url)
+    if not safe:
+        raise ValueError(reason)
+
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; ReviewAnalysisBot/1.0)"}
+    response = requests.get(url, headers=headers, timeout=10, stream=True)
+    response.raise_for_status()
+
+    content = response.raw.read(MAX_FETCH_BYTES + 1, decode_content=True)
+    if len(content) > MAX_FETCH_BYTES:
+        raise ValueError("페이지 용량이 너무 큽니다 (5MB 제한).")
+
+    soup = BeautifulSoup(content, "html.parser")
+    for tag in soup(["script", "style", "noscript", "nav", "footer", "header"]):
+        tag.decompose()
+
+    sentences = []
+    for line in soup.get_text("\n").splitlines():
+        cleaned = re.sub(r"[^가-힣\s]", " ", line).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        if len(cleaned) >= 5:  # 메뉴/버튼 등 짧은 노이즈 제거
+            sentences.append(cleaned)
+    return sentences
+
+
 @st.cache_resource(show_spinner="Okt 형태소 분석기 준비 중... (최초 1회, JVM 기동)")
 def get_okt():
     from konlpy.tag import Okt
@@ -81,9 +149,10 @@ def tokenize_and_count(
 
 
 @st.cache_data(show_spinner="형태소 분석 및 빈도 계산 중...")
-def analyze(mode: str, min_freq: int = 1) -> Counter:
-    """mode: 'basic' 또는 'improved'"""
-    corpus = load_corpus_cached()
+def analyze(mode: str, min_freq: int = 1, corpus: list[str] | None = None) -> Counter:
+    """mode: 'basic' 또는 'improved'. corpus를 지정하면 기본 제공 코퍼스 대신 사용합니다."""
+    if corpus is None:
+        corpus = load_corpus_cached()
     okt = get_okt()
     stopwords = BASIC_STOPWORDS if mode == "basic" else IMPROVED_STOPWORDS
     counter = tokenize_and_count(corpus, okt, stopwords)

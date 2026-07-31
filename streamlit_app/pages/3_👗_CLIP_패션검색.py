@@ -33,7 +33,7 @@ with st.spinner(""):
 if index["missing_count"]:
     st.caption(f"⚠️ {index['missing_count']}개 아이템은 이미지를 준비하지 못해 검색에서 제외되었습니다.")
 
-tab_text, tab_image = st.tabs(["📝 텍스트로 검색", "🖼️ 이미지로 검색"])
+tab_text, tab_image, tab_wardrobe = st.tabs(["📝 텍스트로 검색", "🖼️ 이미지로 검색", "👕 내 옷장"])
 
 with tab_text:
     query = st.text_input("원하는 스타일을 설명해보세요", placeholder="예: 우아하고 세련된 검은색 옷이 필요해")
@@ -67,6 +67,54 @@ with tab_image:
                     st.image(img_path, width="stretch")
                     st.markdown(f"**{item}**")
                     st.progress(min(max(sim, 0.0), 1.0), text=f"유사도 {sim:.1%}")
+
+with tab_wardrobe:
+    st.caption("고정된 12가지 아이템이 아니라, 내가 올린 옷 사진들 중에서 텍스트로 검색합니다.")
+    uploaded_files = st.file_uploader(
+        "내 옷 사진을 여러 장 업로드하세요",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=True,
+        key="wardrobe_upload",
+    )
+
+    if uploaded_files:
+        cache_key = tuple((f.name, f.size) for f in uploaded_files)
+        if st.session_state.get("wardrobe_cache_key") != cache_key:
+            with st.spinner(f"{len(uploaded_files)}장 벡터화 중..."):
+                images = [Image.open(f).convert("RGB") for f in uploaded_files]
+                vectors = cs.embed_uploaded_images(images)
+            st.session_state["wardrobe_images"] = images
+            st.session_state["wardrobe_vectors"] = vectors
+            st.session_state["wardrobe_cache_key"] = cache_key
+
+        wardrobe_images = st.session_state["wardrobe_images"]
+        wardrobe_vectors = st.session_state["wardrobe_vectors"]
+        st.caption(f"✅ {len(wardrobe_images)}장 등록 완료")
+
+        with st.expander("업로드한 옷 미리보기"):
+            preview_cols = st.columns(min(len(wardrobe_images), 6) or 1)
+            for i, img in enumerate(wardrobe_images):
+                with preview_cols[i % len(preview_cols)]:
+                    st.image(img, width="stretch")
+
+        wardrobe_query = st.text_input(
+            "내 옷장에서 찾고 싶은 스타일을 설명해보세요", placeholder="예: 편하게 입을 캐주얼한 옷", key="wardrobe_query"
+        )
+        if len(wardrobe_images) > 1:
+            n_results_wardrobe = st.slider(
+                "추천 개수", 1, len(wardrobe_images), min(5, len(wardrobe_images)), key="wardrobe_n"
+            )
+        else:
+            n_results_wardrobe = 1
+        if st.button("내 옷장에서 검색", type="primary", key="wardrobe_search", disabled=not wardrobe_query.strip()):
+            results = cs.search_in_wardrobe(wardrobe_query, wardrobe_vectors, n_results=n_results_wardrobe)
+            cols = st.columns(min(len(results), 5) or 1)
+            for i, (idx, sim) in enumerate(results):
+                with cols[i % len(cols)]:
+                    st.image(wardrobe_images[idx], width="stretch")
+                    st.progress(min(max(sim, 0.0), 1.0), text=f"유사도 {sim:.1%}")
+    else:
+        st.info("옷 사진을 여러 장 올리면 내 옷장에서 텍스트로 검색할 수 있습니다.")
 
 with st.expander("등록된 12가지 패션 프로필"):
     for name, desc in cs.FASHION_PROFILES.items():
