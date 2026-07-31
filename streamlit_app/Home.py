@@ -24,12 +24,12 @@ st.markdown(
 
 **참고 (배포판 vs 원본 노트북 차이)**
 
-무료 호스팅(Streamlit Community Cloud)의 메모리 제약 때문에 아래 두 가지를 배포판에서만 가볍게 교체했습니다.
-각 실습 폴더의 원본 `.ipynb`는 수정되지 않았습니다.
+각 실습 폴더의 원본 `.ipynb`는 수정되지 않았습니다. 배포판 코드에서만 아래처럼 교체했습니다.
 
-- CLIP 로드 방식: `git+openai/CLIP` → `transformers.CLIPModel`(`openai/clip-vit-base-patch16`, 동일 가중치)
-- 실습9 번역 모델: `nllb-200-distilled-600M`(2.4GB) → `Helsinki-NLP/opus-mt-tc-big-en-ko`(약 800MB, 번역 품질은 다소 낮아질 수 있음)
+- CLIP 로드 방식: `git+openai/CLIP` → `transformers.CLIPModel`(`openai/clip-vit-base-patch16`, 동일 가중치, 배포 신뢰성 목적)
+- 실습2 번역 모델: 매번 즉석에서 3 epoch만 학습하면 품질이 너무 낮아, 로컬에서 60 epoch 미리 학습한 가중치를 로드하도록 변경
+- 실습9 번역 모델: 메모리를 아끼려고 더 가벼운 모델(opus-mt-tc-big-en-ko, ~800MB)을 시도했으나 번역 출력이 심각하게 깨져서(중국어 혼입) 원본과 동일한 `nllb-200-distilled-600M`(2.4GB)으로 되돌림 — 품질을 우선한 선택
 
-무거운 모델(BLIP, 번역 모델, CLIP)은 해당 페이지를 처음 열 때만 다운로드/로드됩니다.
+무거운 모델(BLIP, 번역 모델, CLIP)은 해당 페이지를 처음 열 때만 다운로드/로드되고, CLIP ↔ BLIP+번역 페이지를 전환하면 이전 모델은 메모리에서 비웁니다. 그래도 무료 호스팅 RAM 한도를 넘으면 앱이 재시작될 수 있습니다.
 """
 )

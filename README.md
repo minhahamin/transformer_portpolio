@@ -41,7 +41,7 @@ BLIP(Salesforce/blip-image-captioning-base) 모델로 MSCOCO 이미지 50장에 
 - **실습2**: 원래 `torchtext`를 사용하도록 작성되었으나, torchtext는 2023년 Meta가 공식적으로 개발을 중단해 최신 PyTorch와 호환되는 배포판이 없습니다. `get_tokenizer` / `build_vocab_from_iterator`를 순수 Python으로 재구현해 대체했습니다(외부 패키지 설치 불필요).
 - **실습2**: `data/input.txt`가 채점 시스템이 채워 넣기 전의 placeholder 텍스트("Test\nData\n...")를 담고 있어, 이 파일을 그대로 번역 테스트에 사용하면 `translate()`/`beam_search_translate()`가 학습 어휘에 없는 영어 단어(`Test` 등)에서 `KeyError`를 던집니다. 두 함수 모두 학습 어휘에 없는 토큰은 건너뛰도록 방어 코드를 추가했습니다 — 다만 `input.txt` 자체가 한국어 문장이 아니므로 번역 결과 자체는 여전히 의미가 없습니다. 실제 번역을 확인하려면 `input.txt`를 실제 한국어 문장으로 바꿔서 실행하세요.
 - **실습9**: `korean_image_captioning_dataset/`(MSCOCO 한국어 캡션, 117MB)과 `coco_images/`는 용량이 커서 `.gitignore`로 제외했습니다 — 노트북의 데이터 로드/다운로드 셀을 그대로 실행하면 다시 준비됩니다.
-- **실습9**: 한국어 번역에 쓰는 `Helsinki-NLP/opus-mt-tc-big-en-ko` 체크포인트가 토크나이저 vocab 이슈로 번역 품질이 낮게 나오는 현상이 확인되어, 노트북은 `facebook/nllb-200-distilled-600M`으로 교체했습니다. (아래 Streamlit 배포판은 무료 호스팅 메모리 제약 때문에 품질을 다소 희생하고 다시 `opus-mt-tc-big-en-ko`를 사용합니다.)
+- **실습9**: 한국어 번역에 쓰는 `Helsinki-NLP/opus-mt-tc-big-en-ko` 체크포인트가 토크나이저 vocab 이슈로 번역 품질이 낮게 나오는 현상이 확인되어, 노트북은 `facebook/nllb-200-distilled-600M`으로 교체했습니다. (실제로 이 체크포인트는 모델 카드의 공식 예제 코드로 재현해봐도 중국어 단어/문장부호가 섞인 깨진 출력을 냈습니다 — 배포판에서 메모리를 아끼려고 다시 시도했다가 확인된 내용이며, 아래 Streamlit 배포판도 결국 품질을 우선해 `nllb-200-distilled-600M`으로 되돌렸습니다.)
 
 ## Streamlit 배포판
 
@@ -52,7 +52,7 @@ BLIP(Salesforce/blip-image-captioning-base) 모델로 MSCOCO 이미지 50장에 
 | 실습1 | 없음 (Okt 그대로, `packages.txt`로 JVM 설치) |
 | 실습2 | 앱이 매번 즉석에서 3 epoch만 학습하면 loss가 높아 번역 품질이 나빴음(입력과 무관하게 "mike is ." 류로 출력이 수렴) → 로컬에서 60 epoch 미리 학습해 `streamlit_app/lib/seq2seq_checkpoint.pt`로 저장해두고, 앱은 이를 로드만 함(수십 ms). 체크포인트가 없으면 3 epoch 즉석 학습으로 자동 폴백 |
 | 실습6 | `git+openai/CLIP` → `transformers.CLIPModel`(`openai/clip-vit-base-patch16`, 동일 가중치, 배포 신뢰성 목적) |
-| 실습9 | 번역 모델 `nllb-200-distilled-600M`(2.4GB) → `Helsinki-NLP/opus-mt-tc-big-en-ko`(약 800MB). 위 이슈 노트에 있는 품질 저하를 무료 티어 메모리와 맞바꾼 선택 |
+| 실습9 | 없음 (원본과 동일한 `nllb-200-distilled-600M`, 2.4GB). 메모리 절약을 위해 `opus-mt-tc-big-en-ko`(~800MB)로 교체를 시도했으나 번역 출력이 심각하게 깨져(중국어 혼입) 되돌림 — BLIP(990MB)과 합쳐 이 페이지의 메모리 사용량이 큼 |
 
 무료 티어 RAM 한도(약 1GB)를 넘기지 않도록, CLIP(실습6) ↔ BLIP+번역모델(실습9) 페이지를 전환할 때 이전 쪽의 모델 캐시를 자동으로 비웁니다(`streamlit_app/lib/memory_manager.py`). 동시에 다른 페이지를 보는 사용자가 여러 명이면 서로의 캐시를 밀어낼 수 있다는 트레이드오프가 있습니다.
 
