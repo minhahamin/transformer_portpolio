@@ -33,7 +33,7 @@ st.caption(
 )
 
 sentence = st.text_input(
-    "한국어 문장 입력", value="", placeholder="예: 안녕하세요, 오늘 날씨가 정말 좋네요"
+    "한국어 문장 입력", value="어머니는 그들을 스케치하고 있다."
 )
 decoding = st.radio("디코딩 방식", ["Greedy", "Beam Search"], horizontal=True)
 beam_width = st.slider("Beam width", 2, 5, 3, disabled=(decoding == "Greedy"))
