@@ -50,15 +50,21 @@ BLIP(Salesforce/blip-image-captioning-base) 모델로 MSCOCO 이미지 50장에 
 | 실습 | 배포판에서 달라진 점 |
 |---|---|
 | 실습1 | 없음 (Okt 그대로, `packages.txt`로 JVM 설치) |
-| 실습2 | 없음 (앱 시작 시 720문장으로 3 epoch 즉석 학습, 수 초~수십 초 소요) |
+| 실습2 | 앱이 매번 즉석에서 3 epoch만 학습하면 loss가 높아 번역 품질이 나빴음(입력과 무관하게 "mike is ." 류로 출력이 수렴) → 로컬에서 60 epoch 미리 학습해 `streamlit_app/lib/seq2seq_checkpoint.pt`로 저장해두고, 앱은 이를 로드만 함(수십 ms). 체크포인트가 없으면 3 epoch 즉석 학습으로 자동 폴백 |
 | 실습6 | `git+openai/CLIP` → `transformers.CLIPModel`(`openai/clip-vit-base-patch16`, 동일 가중치, 배포 신뢰성 목적) |
 | 실습9 | 번역 모델 `nllb-200-distilled-600M`(2.4GB) → `Helsinki-NLP/opus-mt-tc-big-en-ko`(약 800MB). 위 이슈 노트에 있는 품질 저하를 무료 티어 메모리와 맞바꾼 선택 |
+
+무료 티어 RAM 한도(약 1GB)를 넘기지 않도록, CLIP(실습6) ↔ BLIP+번역모델(실습9) 페이지를 전환할 때 이전 쪽의 모델 캐시를 자동으로 비웁니다(`streamlit_app/lib/memory_manager.py`). 동시에 다른 페이지를 보는 사용자가 여러 명이면 서로의 캐시를 밀어낼 수 있다는 트레이드오프가 있습니다.
 
 ### 로컬 실행
 
 ```bash
 pip install -r requirements.txt
 # 실습1의 Okt는 Java(JRE/JDK)가 로컬에 설치되어 있어야 합니다.
+
+# 실습2 번역 품질을 위해 최초 1회만 실행 (약 40분 소요, 이후에는 재실행 불필요)
+python streamlit_app/scripts/pretrain_seq2seq.py
+
 streamlit run streamlit_app/Home.py
 ```
 

@@ -15,7 +15,7 @@ bundle = s2s.train_bundle()
 
 st.info(
     f"학습 완료 — vocab 크기: 한국어 {len(bundle.vocab_ko):,} / 영어 {len(bundle.vocab_en):,} · "
-    f"최종 loss: {bundle.losses[-1]:.4f} (3 epoch)",
+    f"최종 loss: {bundle.losses[-1]:.4f} ({len(bundle.losses)} epoch)",
     icon="✅",
 )
 
@@ -23,7 +23,10 @@ with st.expander("Epoch별 학습 Loss"):
     st.line_chart({"loss": bundle.losses})
 
 st.subheader("🇰🇷 → 🇺🇸 번역해보기")
-st.caption("⚠️ 학습 데이터가 720문장뿐인 작은 토이 모델입니다. 학습 데이터에 없는 단어/구조는 번역이 부정확할 수 있습니다.")
+st.caption(
+    "⚠️ 학습 데이터가 720문장뿐인 작은 토이 모델입니다. 학습 문장과 비슷한 표현은 잘 번역되지만, "
+    "학습 데이터에 없는 단어/구조는 번역이 부정확할 수 있습니다."
+)
 
 sentence = st.text_input(
     "한국어 문장 입력", value="", placeholder="예: 안녕하세요, 오늘 날씨가 정말 좋네요"
