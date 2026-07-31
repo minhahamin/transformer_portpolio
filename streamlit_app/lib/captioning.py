@@ -18,23 +18,19 @@ BLIP(990MB) + NLLB를 동시에 메모리에 올리면 무료 호스팅에서 �
 (로드 1.2GB, generate 후에도 1.2GB로 스파이크가 사실상 사라짐) 메모리 사용량만 크게
 줄었습니다.
 
-다만 변환 자체(원본 fp32 가중치를 불러와 양자화하는 과정)는 순간 메모리가 4GB까지
-치솟는 것으로 확인되어, 무료 호스팅에서 최초 요청 시점에 직접 변환하면 그때 죽습니다.
-그래서 변환은 리소스가 넉넉한 로컬에서 미리 한 번만 수행했고, 결과물(약 600MB)은
-GitHub 100MB 파일 제한을 넘기 때문에 별도 HF 모델 저장소(하단 CT2_MODEL_REPO)에
-올려두고 앱은 그 완성된 변환본을 다운로드만 합니다.
+번역 모델 자체(NLLB, CTranslate2 int8 변환)는 실습6 텍스트 검색과 함께 쓰는
+공용 모듈 `lib/nllb_translate.py`로 옮겼습니다 — 두 실습이 같은 모델을 방향만
+바꿔(영→한 / 한→영) 재사용하므로, 따로 로드하면 메모리에 같은 모델이 두 벌
+올라가는 걸 막기 위함입니다.
 """
-from pathlib import Path
-
 from PIL import Image
 
 import streamlit as st
 import torch
 
+from lib import nllb_translate
+
 BLIP_MODEL_ID = "Salesforce/blip-image-captioning-base"
-TRANSLATE_MODEL_ID = "facebook/nllb-200-distilled-600M"
-CT2_MODEL_REPO = "hong28297/nllb-200-distilled-600m-ct2-int8"
-CT2_CACHE_DIR = Path(__file__).resolve().parent / "nllb_ct2_int8"
 
 
 @st.cache_resource(show_spinner="BLIP 캡셔닝 모델 로드 중... (최초 1회, 약 990MB 다운로드)")
@@ -45,21 +41,6 @@ def load_blip():
     model = BlipForConditionalGeneration.from_pretrained(BLIP_MODEL_ID)
     model.eval()
     return model, processor
-
-
-@st.cache_resource(show_spinner="번역 모델 로드 중... (최초 1회, 약 600MB 다운로드)")
-def load_translator():
-    import ctranslate2
-    from huggingface_hub import snapshot_download
-    from transformers import AutoTokenizer
-
-    tokenizer = AutoTokenizer.from_pretrained(TRANSLATE_MODEL_ID)
-
-    if not (CT2_CACHE_DIR / "model.bin").exists():
-        snapshot_download(repo_id=CT2_MODEL_REPO, local_dir=str(CT2_CACHE_DIR))
-
-    translator = ctranslate2.Translator(str(CT2_CACHE_DIR), device="cpu")
-    return translator, tokenizer
 
 
 def generate_caption(image: Image.Image, max_new_tokens: int = 50) -> str:
@@ -74,12 +55,4 @@ def translate_to_korean(text: str) -> str:
     # BLIP(990MB)과 번역 모델이 동시에 메모리에 있으면 무료 호스팅에서 OOM이 나므로,
     # 번역 모델을 로드하기 전에 이미 사용이 끝난 BLIP을 먼저 비웁니다.
     load_blip.clear()
-    translator, tokenizer = load_translator()
-    tokenizer.src_lang = "eng_Latn"
-    src_tokens = tokenizer.convert_ids_to_tokens(tokenizer.encode(text))
-    results = translator.translate_batch(
-        [src_tokens], target_prefix=[["kor_Hang"]], max_decoding_length=50
-    )
-    tgt_tokens = results[0].hypotheses[0][1:]
-    tgt_ids = tokenizer.convert_tokens_to_ids(tgt_tokens)
-    return tokenizer.decode(tgt_ids, skip_special_tokens=True)
+    return nllb_translate.translate(text, src="en", tgt="ko")

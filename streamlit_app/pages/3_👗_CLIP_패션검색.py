@@ -39,7 +39,9 @@ with tab_text:
     query = st.text_input("원하는 스타일을 설명해보세요", placeholder="예: 우아하고 세련된 검은색 옷이 필요해")
     n_results = st.slider("추천 개수", 1, len(cs.FASHION_PROFILES), 5, key="text_n")
     if st.button("검색", type="primary", key="text_search", disabled=not query.strip()):
-        results = cs.search_fashion_style(query, index["text_vectors"], n_results=n_results)
+        with st.spinner("검색 중..."):
+            results, english_query = cs.search_fashion_style(query, index["text_vectors"], n_results=n_results)
+        st.caption(f"🔤 번역된 검색어: {english_query}")
         cols = st.columns(min(len(results), 5) or 1)
         for i, (item, sim) in enumerate(results):
             with cols[i % len(cols)]:

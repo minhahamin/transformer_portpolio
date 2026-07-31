@@ -9,10 +9,11 @@ import streamlit as st
 
 from lib import captioning as cap
 from lib import clip_search as cs
+from lib import nllb_translate as nllb
 
 _HEAVY_GROUPS = {
-    "clip": [cs.load_clip],
-    "caption": [cap.load_blip, cap.load_translator],
+    "clip": [cs.load_clip, nllb.load_translator],
+    "caption": [cap.load_blip, nllb.load_translator],
 }
 
 

@@ -158,16 +158,27 @@ def build_fashion_index():
 
 
 def search_fashion_style(style_description: str, text_vectors: dict, n_results: int = 5):
+    """사용자가 입력한 한국어 스타일 설명으로 검색합니다.
+
+    OpenAI CLIP 토크나이저는 한국어를 학습하지 않아 한국어 문장을 그대로 넣으면
+    의미 없는 바이트 조각으로 쪼개집니다(실측: "우아한 스타일" 검색 시 "우아한
+    드레스"가 20개 중 18등으로 밀려남). 그래서 CLIP에 넣기 전에 영어로 먼저
+    번역합니다. Returns: (results, 번역된 영어 쿼리)
+    """
+    from lib import nllb_translate
+
+    english_query = nllb_translate.translate(style_description, src="ko", tgt="en")
+
     model, processor = load_clip()
     with torch.no_grad():
-        inputs = processor(text=[style_description], return_tensors="pt", padding=True)
+        inputs = processor(text=[english_query], return_tensors="pt", padding=True)
         feats = _as_embedding(model.get_text_features(**inputs))
         feats = feats / feats.norm(dim=-1, keepdim=True)
         query_vector = feats.cpu().numpy().squeeze()
 
     similarities = [(item, float(query_vector @ vec)) for item, vec in text_vectors.items()]
     similarities.sort(key=lambda x: x[1], reverse=True)
-    return similarities[:n_results]
+    return similarities[:n_results], english_query
 
 
 def search_by_image(pil_image: Image.Image, text_vectors: dict, valid_images: dict, n_results: int = 5):
